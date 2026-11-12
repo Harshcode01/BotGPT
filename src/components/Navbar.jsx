@@ -1,22 +1,20 @@
-import React from 'react'
+import React from "react";
 import { FaRobot, FaRegCircleUser } from "react-icons/fa6";
 
 const Navbar = () => {
   return (
-    <div>
-      <div className="nav flex items-center justify-between h-[100px] px-[150px]">
-        <div className="logo flex items-center gap-[10px]">
-          <i className='text-[50px]'><FaRobot /></i>
-          <h3 className='text-[25px] font-[700]'>Bot<span className='text-purple-500'>GPT</span></h3>
+    <nav className="border-b border-zinc-800">
+      <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-4">
+        <div className="flex items-center gap-2">
+          <i className="text-[32px]"><FaRobot /></i>
+          <h3 className="text-[22px] font-bold">
+            Bot<span className="text-purple-500">GPT</span>
+          </h3>
         </div>
-
-        <div className="user">
-         <i className='text-[27px] cursor-pointer'><FaRegCircleUser/></i>
-        </div>
+        <i className="cursor-pointer text-[26px]"><FaRegCircleUser /></i>
       </div>
+    </nav>
+  );
+};
 
-    </div>
-  )
-}
-
-export default Navbar
+export default Navbar;
