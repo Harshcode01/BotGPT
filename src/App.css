@@ -1,90 +1,44 @@
-*{
-  margin: 0;
-  padding: 0;
-}
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;500;600&family=Inter:wght@400;500;600&display=swap');
+@import "tailwindcss";
 
-body{
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;body {
-  background-color: #000;
-  color: #fff;
+body {
+  background-color: #1a1915;
+  color: #e5e3df;
   overflow-x: hidden;
+  font-family: 'Inter', system-ui, sans-serif;
 }
 
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: #18181b; }
-::-webkit-scrollbar-thumb { background: #52525b; }
-::-webkit-scrollbar-thumb:hover { background: #71717a; }
-
-.markdown p { margin-bottom: 10px; }
-.markdown h1, .markdown h2, .markdown h3 {
-  font-weight: 700;
-  margin: 12px 0 6px;
-}
-.markdown h3 { font-size: 20px; }
-.markdown ul { list-style: disc; margin: 10px 0 10px 20px; }
-.markdown ol { list-style: decimal; margin: 10px 0 10px 20px; }
-.markdown pre {
-  background-color: #27272a;
-  padding: 12px;
-  margin: 10px 0;
-  border-radius: 8px;
-  overflow-x: auto;
-}
-.markdown code { font-size: 14px; }
-  overflow-x: hidden;
-  background-color: #000;
-  color: #fff;
-}
-
-html{
-  overflow-x: hidden;
-}
-
-/* width */
 ::-webkit-scrollbar {
-  width: 5px;
+  width: 6px;
+  height: 6px;
 }
 
-/* Track */
 ::-webkit-scrollbar-track {
-  background: #888;
+  background: transparent;
 }
 
-/* Handle */
 ::-webkit-scrollbar-thumb {
-  background: #f1f1f1;
+  background: #3a3935;
+  border-radius: 3px;
 }
 
-/* Handle on hover */
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: #4a4945;
 }
 
-h3{
-  font-size: 23px !important;
-  margin: 10px 0px;
+.font-claude-serif {
+  font-family: 'Newsreader', 'Georgia', serif;
 }
 
-ol, ul{
-  list-style: decimal;
-  margin-left: 20px;
-  margin-top: 10px;
-  margin-bottom: 10px;
-}
-
-li{
-  list-style: disc;
-}
-
-pre{
-  background-color: #555;
-  padding: 15px;
-  margin: 10px 0px;
-  overflow: auto;
-}
-
-.screen-2 > div.ai p{
-  margin-bottom: 10px;
-}
+/* Claude Markdown Overrides */
+.markdown p { margin-bottom: 12px; line-height: 1.6; }
+.markdown h1, .markdown h2, .markdown h3 { font-weight: 600; margin: 20px 0 10px; color: #e5e3df; }
+.markdown h3 { font-size: 18px; }
+.markdown ul { list-style: disc; margin: 12px 0 12px 24px; }
+.markdown ol { list-style: decimal; margin: 12px 0 12px 24px; }
+.markdown pre { background-color: #2b2a27 !important; padding: 16px; margin: 12px 0; border-radius: 12px; overflow-x: auto; border: 1px solid #3a3935; }
+.markdown code { font-family: 'JetBrains Mono', monospace; font-size: 13.5px; }
+.markdown > *:last-child { margin-bottom: 0; }
+.markdown a { color: #d97757; text-decoration: underline; text-underline-offset: 2px; }
+.markdown strong { color: #fff; font-weight: 600; }
+.markdown li { margin: 6px 0; }

@@ -1,144 +1,293 @@
-import React, { useEffect, useRef, useState } from "react";
-import "./App.css";
-import Navbar from "./components/Navbar";
-import { GoogleGenAI } from "@google/genai";
-import { BeatLoader } from "react-spinners";
-import Markdown from "react-markdown";
-import { RiComputerFill } from "react-icons/ri";
-import { GiOpenBook, GiWhiteBook } from "react-icons/gi";
-import { FaBloggerB, FaPaperPlane } from "react-icons/fa";
+import React, { useRef, useState, useEffect } from "react";
+import { FiMenu } from "react-icons/fi";
 
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+import LandingPage from "./components/LandingPage";
+import Sidebar from "./components/Sidebar";
+import Hero from "./components/Hero";
+import ChatMessage from "./components/ChatMessage";
+import ChatFooter from "./components/ChatFooter";
+import TypingIndicator from "./components/TypingIndicator";
 
-const cards = [
-  { Icon: RiComputerFill, text: "Create a website using html css and js." },
-  { Icon: GiWhiteBook, text: "Write a book for me. Topic is coding." },
-  { Icon: GiOpenBook, text: "Tell me a comedy story." },
-  { Icon: FaBloggerB, text: "Create a blog for me. Topic is web dev." },
-];
+import useFreeTrial from "./hooks/useFreeTrial";
+import useTypewriter from "./hooks/useTypewriter";
+import useAutoScroll from "./hooks/useAutoScroll";
 
-const App = () => {
-  const [screen, setScreen] = useState(1);
-  const [prompt, setPrompt] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [data, setData] = useState([]);
-  const chatRef = useRef(null);
-  const bottomRef = useRef(null);
+const FREE_LIMIT = 5;
+const STORAGE_KEY = "botgpt_free_used";
+
+// Turns the visible messages into the history format the API expects.
+// System error/alert messages are left out.
+const buildHistory = (messages) =>
+  messages
+    .filter(
+      (m) =>
+        typeof m.content === "string" &&
+        m.content.trim() &&
+        !m.content.startsWith("**System"),
+    )
+    .map((m) => ({
+      role: m.role === "user" ? "user" : "model",
+      text: m.content,
+    }));
+
+// ============================================================================
+// CUSTOM ROUTER
+// ============================================================================
+const usePathname = () => {
+  const [pathname, setPathname] = useState(window.location.pathname);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [data, loading]);
+    const onPopState = () => setPathname(window.location.pathname);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
-  async function sendPrompt(text) {
-    const message = text.trim();
-    if (!message || loading) return;
+  const navigate = (path) => {
+    window.history.pushState({}, "", path);
+    setPathname(path);
+  };
 
-    if (!chatRef.current) {
-     chatRef.current = ai.chats.create({ model: "gemini-3.6-flash" });
+  return { pathname, navigate };
+};
+
+// ============================================================================
+// MAIN APPLICATION ROOT
+// ============================================================================
+export default function App() {
+  const { pathname, navigate } = usePathname();
+
+  // Route to the existing LandingPage or the new ChatApplication
+  if (pathname === "/chat") {
+    return <ChatApplication navigate={navigate} />;
+  }
+
+  return <LandingPage onStartChat={() => navigate("/chat")} />;
+}
+
+// ============================================================================
+// ROUTE: CHAT APPLICATION ( /chat )
+// ============================================================================
+const ChatApplication = ({ navigate }) => {
+  const [prompt, setPrompt] = useState("");
+  const [attachments, setAttachments] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+
+  const [chats, setChats] = useState([
+    { id: 1, title: "System Initialization", messages: [] },
+  ]);
+  const [activeChatId, setActiveChatId] = useState(null);
+  const [data, setData] = useState([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 768);
+
+  const bottomRef = useRef(null);
+
+  const trial = useFreeTrial(FREE_LIMIT, STORAGE_KEY);
+  const typewriter = useTypewriter();
+  useAutoScroll(bottomRef, { messages: data, loading, screen: 2, streaming });
+
+  // Show the server's real remaining count on load.
+  useEffect(() => {
+    fetch("/api/chat")
+      .then((r) => r.json())
+      .then((d) => {
+        if (typeof d.remaining === "number") trial.applyServer(d.remaining);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Handle responsive sidebar on window resize
+  useEffect(() => {
+    const handleResize = () => setIsSidebarOpen(window.innerWidth > 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // Sync active chat state
+  useEffect(() => {
+    if (activeChatId) {
+      setChats((prev) =>
+        prev.map((c) => (c.id === activeChatId ? { ...c, messages: data } : c)),
+      );
+    }
+  }, [data, activeChatId]);
+
+  const startNewChat = () => {
+    setPrompt("");
+    setAttachments([]);
+    setActiveChatId(null);
+    setData([]);
+    if (window.innerWidth < 768) setIsSidebarOpen(false);
+  };
+
+  const loadChat = (id) => {
+    const chat = chats.find((c) => c.id === id);
+    if (chat) {
+      setActiveChatId(id);
+      setData(chat.messages);
+      if (window.innerWidth < 768) setIsSidebarOpen(false);
+    }
+  };
+
+  const setLastMessageText = (content) => {
+    setData((prev) => {
+      const next = prev.slice();
+      next[next.length - 1] = { ...next[next.length - 1], content };
+      return next;
+    });
+  };
+
+  const showError = (content) => {
+    setLoading(false);
+    setData((prev) => [...prev, { role: "ai", content }]);
+  };
+
+  async function sendPrompt() {
+    const message = prompt.trim();
+    if ((!message && attachments.length === 0) || loading || streaming) return;
+
+    if (trial.isExhausted()) {
+      trial.sync();
+      setData((prev) => [
+        ...prev,
+        { role: "user", content: message },
+        { role: "ai", content: "**System Alert:** Trial quota exceeded." },
+      ]);
+      return;
+    }
+    trial.consume();
+
+    if (!activeChatId) {
+      const newChat = {
+        id: Date.now(),
+        title: message ? message.slice(0, 30) + "..." : "New Session",
+        messages: [],
+      };
+      setChats((prev) => [newChat, ...prev]);
+      setActiveChatId(newChat.id);
     }
 
-    setData((prev) => [...prev, { role: "user", content: message }]);
+    const history = buildHistory(data);
+
+    setData((prev) => [
+      ...prev,
+      { role: "user", content: message, attachments },
+    ]);
     setPrompt("");
-    setScreen(2);
+    setAttachments([]);
     setLoading(true);
 
     try {
-      const response = await chatRef.current.sendMessage({ message });
-      setData((prev) => [...prev, { role: "ai", content: response.text ?? "" }]);
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: message || "Process attached files.",
+          history,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const err = new Error(body.error || "failed");
+        err.code = body.error || "failed";
+        err.remaining = body.remaining;
+        throw err;
+      }
+
+      trial.applyServer(body.remaining);
+      setLoading(false);
+      setStreaming(true);
+      setData((prev) => [...prev, { role: "ai", content: "" }]);
+      typewriter.start(setLastMessageText, () => setStreaming(false));
+      typewriter.push(body.text || "");
+      typewriter.finish();
     } catch (error) {
       console.error(error);
-      setData((prev) => [
-        ...prev,
-        { role: "ai", content: "Error: the request failed. Try again." },
-      ]);
-    } finally {
-      setLoading(false);
+      if (error.code === "trial_exhausted") {
+        trial.applyServer(0);
+        showError("**System Alert:** Trial quota exceeded.");
+      } else if (error.code === "busy") {
+        trial.refund();
+        showError(
+          "**System Error:** The AI service is busy right now. Please try again in a minute.",
+        );
+      } else {
+        trial.refund();
+        showError("**System Error:** Request failed to process.");
+      }
     }
   }
 
   return (
-    <div className="flex h-dvh flex-col bg-black text-white">
-      <Navbar />
+    <div className="flex h-screen w-full bg-[#080B0F] text-[#E8EEF5] overflow-hidden font-geist selection:bg-[#00D5E8]/30 selection:text-[#00D5E8]">
+      {/* Sidebar Drawer / Fixed */}
+      <Sidebar
+        isOpen={isSidebarOpen}
+        toggle={() => setIsSidebarOpen(!isSidebarOpen)}
+        chats={chats}
+        activeChatId={activeChatId}
+        onSelectChat={loadChat}
+        onNewChat={startNewChat}
+        navigate={navigate}
+      />
 
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto h-full w-full max-w-4xl px-4 py-4">
-          {screen === 1 ? (
-            <div className="flex h-full flex-col items-center justify-center">
-              <h3 className="text-[40px] font-bold">
-                Bot<span className="text-purple-500">GPT</span>
-              </h3>
-              <div className="mt-5 grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {cards.map(({ Icon, text }) => (
-                  <div
-                    key={text}
-                    onClick={() => sendPrompt(text)}
-                    className="cursor-pointer rounded-lg bg-zinc-800 p-4 transition-all hover:bg-zinc-700"
-                  >
-                    <i className="text-[30px]"><Icon /></i>
-                    <p className="mt-3">{text}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <>
-              {data.map((item, index) =>
-                item.role === "user" ? (
-                  <div
-                    key={index}
-                    className="mb-4 ml-auto w-fit max-w-[85%] rounded-lg bg-purple-900/60 p-4 sm:max-w-[70%]"
-                  >
-                    <p className="text-[14px] text-zinc-400">You</p>
-                    <p className="break-words">{item.content}</p>
-                  </div>
-                ) : (
-                  <div
-                    key={index}
-                    className="mb-4 mr-auto w-fit max-w-[95%] rounded-lg bg-zinc-800 p-4 sm:max-w-[80%]"
-                  >
-                    <p className="text-[14px] text-zinc-400">BotGPT</p>
-                    <div className="markdown break-words">
-                      <Markdown>{item.content}</Markdown>
-                    </div>
-                  </div>
-                )
-              )}
-              {loading && <BeatLoader color="#fff" />}
-            </>
-          )}
-          <div ref={bottomRef} />
-        </div>
-      </main>
-
-      <footer className="border-t border-zinc-800 bg-black px-4 py-3">
-        <div className="mx-auto max-w-4xl">
-          <div className="flex items-center gap-2 rounded-lg bg-zinc-800 pr-2">
-            <input
-              onKeyDown={(e) => {
-                if (e.key === "Enter") sendPrompt(prompt);
-              }}
-              onChange={(e) => setPrompt(e.target.value)}
-              value={prompt}
-              type="text"
-              placeholder="Enter your prompt!"
-              className="min-w-0 flex-1 bg-transparent p-4 text-[16px] font-medium outline-none"
-            />
-            <button
-              onClick={() => sendPrompt(prompt)}
-              disabled={loading || !prompt.trim()}
-              aria-label="Send"
-              className="rounded-md bg-purple-600 p-3 transition-all hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <FaPaperPlane />
-            </button>
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col relative h-full min-w-0">
+        {/* Header - 60px Fixed Height */}
+        <header className="h-[60px] border-b border-[#202B35] flex items-center px-6 justify-between bg-[#080B0F]/95 backdrop-blur-md z-20 shrink-0">
+          <div className="flex items-center gap-4">
+            {!isSidebarOpen && (
+              <button
+                onClick={() => setIsSidebarOpen(true)}
+                className="text-[#8997A8] hover:text-[#E8EEF5] transition-colors focus:outline-none focus:ring-2 focus:ring-[#00D5E8]/50 rounded-sm"
+              >
+                <FiMenu size={20} />
+              </button>
+            )}
+            <span className="text-[14px] font-semibold text-[#E8EEF5] tracking-wide">
+              Workspace
+            </span>
           </div>
-          <p className="mt-2 text-center text-[13px] text-zinc-500">
-            BotGPT can make mistakes! Cross-check it.
-          </p>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-jetbrains text-[#8997A8] bg-[#101820] border border-[#202B35] px-2.5 py-1 rounded-md shadow-sm">
+              Requests: {trial.remaining}/{FREE_LIMIT}
+            </span>
+          </div>
+        </header>
+
+        {/* Scrollable Conversation Area */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar relative">
+          {data.length === 0 ? (
+            <Hero />
+          ) : (
+            <div className="flex flex-col pb-[160px] w-full">
+              {data.map((item, index) => (
+                <ChatMessage
+                  key={index}
+                  message={item}
+                  isUser={item.role === "user"}
+                  streaming={streaming && index === data.length - 1}
+                />
+              ))}
+              {loading && <TypingIndicator />}
+              <div ref={bottomRef} />
+            </div>
+          )}
         </div>
-      </footer>
+
+        {/* Fixed Footer Composer */}
+        <ChatFooter
+          prompt={prompt}
+          setPrompt={setPrompt}
+          attachments={attachments}
+          setAttachments={setAttachments}
+          onSend={sendPrompt}
+          busy={loading || streaming}
+          disabled={trial.trialEnded}
+        />
+      </main>
     </div>
   );
 };
-
-export default App;
