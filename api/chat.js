@@ -2,7 +2,13 @@ import { GoogleGenAI } from "@google/genai";
 
 export const config = { maxDuration: 60 };
 
-const MODELS = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash-lite"];
+// Thinking is set to "low" on the Flash models for faster chat replies.
+// Flash-Lite thinks minimally by default, so it needs no setting.
+const MODELS = [
+  { name: "gemini-3.8-flash", thinkingLevel: "low" },
+  { name: "gemini-3.7-flash", thinkingLevel: "low" },
+  { name: "gemini-3.5-flash-lite" },
+];
 const MAX_HISTORY = 20;
 const MAX_CHARS = 4000;
 const MODEL_TIMEOUT_MS = 15000;
@@ -47,19 +53,22 @@ export default async function handler(req, res) {
     const contents = [...history, { role: "user", parts: [{ text: message }] }];
     let lastError;
 
-    for (const model of MODELS) {
+    for (const { name, thinkingLevel } of MODELS) {
       try {
         const response = await ai.models.generateContent({
-          model,
+          model: name,
           contents,
-          config: { httpOptions: { timeout: MODEL_TIMEOUT_MS } },
+          config: {
+            httpOptions: { timeout: MODEL_TIMEOUT_MS },
+            ...(thinkingLevel && { thinkingConfig: { thinkingLevel } }),
+          },
         });
         return res.status(200).json({
           text: response.text || "_No response was generated._",
         });
       } catch (err) {
         lastError = err;
-        console.error(`[${model}]`, err?.name, err?.message);
+        console.error(`[${name}]`, err?.name, err?.message);
         if (!isRetryable(err)) break;
       }
     }
