@@ -8,12 +8,8 @@ import ChatMessage from "./components/ChatMessage";
 import ChatFooter from "./components/ChatFooter";
 import TypingIndicator from "./components/TypingIndicator";
 
-import useFreeTrial from "./hooks/useFreeTrial";
 import useTypewriter from "./hooks/useTypewriter";
 import useAutoScroll from "./hooks/useAutoScroll";
-
-const FREE_LIMIT = 5;
-const STORAGE_KEY = "botgpt_free_used";
 
 // Turns the visible messages into the history format the API expects.
 // System error/alert messages are left out.
@@ -82,20 +78,8 @@ const ChatApplication = ({ navigate }) => {
 
   const bottomRef = useRef(null);
 
-  const trial = useFreeTrial(FREE_LIMIT, STORAGE_KEY);
   const typewriter = useTypewriter();
   useAutoScroll(bottomRef, { messages: data, loading, screen: 2, streaming });
-
-  // Show the server's real remaining count on load.
-  useEffect(() => {
-    fetch("/api/chat")
-      .then((r) => r.json())
-      .then((d) => {
-        if (typeof d.remaining === "number") trial.applyServer(d.remaining);
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Handle responsive sidebar on window resize
   useEffect(() => {
@@ -147,17 +131,6 @@ const ChatApplication = ({ navigate }) => {
     const message = prompt.trim();
     if ((!message && attachments.length === 0) || loading || streaming) return;
 
-    if (trial.isExhausted()) {
-      trial.sync();
-      setData((prev) => [
-        ...prev,
-        { role: "user", content: message },
-        { role: "ai", content: "**System Alert:** Trial quota exceeded." },
-      ]);
-      return;
-    }
-    trial.consume();
-
     if (!activeChatId) {
       const newChat = {
         id: Date.now(),
@@ -192,11 +165,9 @@ const ChatApplication = ({ navigate }) => {
       if (!res.ok) {
         const err = new Error(body.error || "failed");
         err.code = body.error || "failed";
-        err.remaining = body.remaining;
         throw err;
       }
 
-      trial.applyServer(body.remaining);
       setLoading(false);
       setStreaming(true);
       setData((prev) => [...prev, { role: "ai", content: "" }]);
@@ -205,16 +176,11 @@ const ChatApplication = ({ navigate }) => {
       typewriter.finish();
     } catch (error) {
       console.error(error);
-      if (error.code === "trial_exhausted") {
-        trial.applyServer(0);
-        showError("**System Alert:** Trial quota exceeded.");
-      } else if (error.code === "busy") {
-        trial.refund();
+      if (error.code === "busy") {
         showError(
           "**System Error:** The AI service is busy right now. Please try again in a minute.",
         );
       } else {
-        trial.refund();
         showError("**System Error:** Request failed to process.");
       }
     }
@@ -250,11 +216,6 @@ const ChatApplication = ({ navigate }) => {
               Workspace
             </span>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-[11px] font-jetbrains text-[#8997A8] bg-[#101820] border border-[#202B35] px-2.5 py-1 rounded-md shadow-sm">
-              Requests: {trial.remaining}/{FREE_LIMIT}
-            </span>
-          </div>
         </header>
 
         {/* Scrollable Conversation Area */}
@@ -285,7 +246,7 @@ const ChatApplication = ({ navigate }) => {
           setAttachments={setAttachments}
           onSend={sendPrompt}
           busy={loading || streaming}
-          disabled={trial.trialEnded}
+          disabled={false}
         />
       </main>
     </div>
