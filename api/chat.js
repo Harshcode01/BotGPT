@@ -1,16 +1,18 @@
 import { GoogleGenAI } from "@google/genai";
 
-export const config = { maxDuration: 30 };
+export const config = { maxDuration: 60 };
 
 const MODELS = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash-lite"];
 const MAX_HISTORY = 20;
 const MAX_CHARS = 4000;
+const MODEL_TIMEOUT_MS = 15000;
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-const isOverloaded = (err) =>
-  /\b(503|429)\b|UNAVAILABLE|RESOURCE_EXHAUSTED/.test(
-    `${err?.status ?? ""} ${err?.message ?? ""}`,
+// Errors worth retrying on the next model: overloaded or timed out.
+const isRetryable = (err) =>
+  /\b(503|429)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|abort|timeout|timed out|DEADLINE_EXCEEDED/i.test(
+    `${err?.name ?? ""} ${err?.status ?? ""} ${err?.message ?? ""}`,
   );
 
 export default async function handler(req, res) {
@@ -47,20 +49,24 @@ export default async function handler(req, res) {
 
     for (const model of MODELS) {
       try {
-        const response = await ai.models.generateContent({ model, contents });
+        const response = await ai.models.generateContent({
+          model,
+          contents,
+          config: { httpOptions: { timeout: MODEL_TIMEOUT_MS } },
+        });
         return res.status(200).json({
           text: response.text || "_No response was generated._",
         });
       } catch (err) {
         lastError = err;
-        console.error(`[${model}]`, err?.message);
-        if (!isOverloaded(err)) break;
+        console.error(`[${model}]`, err?.name, err?.message);
+        if (!isRetryable(err)) break;
       }
     }
 
     return res
-      .status(isOverloaded(lastError) ? 503 : 500)
-      .json({ error: isOverloaded(lastError) ? "busy" : "failed" });
+      .status(isRetryable(lastError) ? 503 : 500)
+      .json({ error: isRetryable(lastError) ? "busy" : "failed" });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "failed" });
